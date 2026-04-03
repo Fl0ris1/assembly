@@ -19,7 +19,57 @@ start:
 
 	mov bx, 0 ;initialize the buffer pointer
 
-	jmp main_loop
+	jmp login_screen
+
+login_screen:
+	mov bx, 0 ;reset buffer
+
+	mov si, msg_login_prompt ;login prompt
+	call print_string
+
+get_username_loop:
+	mov ah, 0x00 ;wait for key
+	int 0x16
+
+	cmp al, 0x0d ;checks if enter pressed (submission)
+	je check_username
+
+	cmp al, 0x08
+	je .handle_backspace ;handle backspace
+
+	cmp bx, 64 ;buffer limit
+	je get_username_loop
+
+	mov ah, 0x0e ;echo character and store it
+	int 0x10
+	mov [buffer + bx], al
+	inc bx
+	jmp get_username_loop
+
+.handle_backspace:
+	cmp bx, 0
+	je get_username_loop
+
+	dec bx
+	mov ah, 0x0e
+	mov al, 0x08 ;move cursor one spot to the left
+	int 0x10
+	mov al, ' ' ;print a space
+	int 0x10
+	mov al, 0x08 ;move cursor one spot to the left
+	int 0x10
+	jmp get_username_loop
+
+check_username:
+	mov byte [buffer + bx], 0 ;null-terminate the input
+
+	mov ah, 0x0e ;new line for visual cleanliness
+	mov al, 0x0d
+	int 0x10
+	mov al, 0x0a
+	int 0x10
+
+	
 
 main_loop:
 	mov ah, 0x00 ;keyboard read
@@ -37,7 +87,7 @@ main_loop:
 	mov ah, 0x0e
 	int 0x10 ;print character in al
 
-	mov [buffer+bx], al ;stores key pressed into buffer adress + bx
+	mov [buffer + bx], al ;stores key pressed into buffer adress + bx
 	inc bx
 
 	jmp main_loop
@@ -156,17 +206,6 @@ strcmp:
 	cmp al, 0 ;0 == 0 so zero flag will be set (set to 1 NOT 0)
 	ret
 
-; ---------- VARIABLES ----------
-
-buffer: times 64 db 0
-
-cmd_help: db 'help', 0
-cmd_reboot: db 'reboot', 0
-msg_help: db 'Commands: help, reboot', 0
-msg_unknown: db 'Unknown Command: ', 0
-
-prompt: db 'root@maioloOS:~$ ', 0
-
 ; ---------- COMMAND LIBRARY ----------
 
 execute_help:
@@ -199,3 +238,27 @@ unkown_command:
 	int 0x10
 
 	jmp reset_prompt
+
+; ---------- VARIABLES ----------
+
+buffer: times 64 db 0
+
+cmd_help: db 'help', 0
+cmd_reboot: db 'reboot', 0
+msg_help: db 'Commands: help, reboot', 0
+msg_unknown: db 'Unknown Command: ', 0
+
+prompt: db 'root@maioloOS:~$ ', 0
+
+; ---------- AUTHENTICATION DATA ----------
+
+; The 'Golden Truth'
+auth_username: db 'root', 0
+auth_password: db '1234', 0
+
+;UI prompts
+msg_login_prompt: db 'Login: ', 0
+msg_pass_prompt: db 'Password: ', 0
+msg_denied: db 'Access Denied.', 0
+msg_welcome: db 'Welcome, Administrator.', 0
+
