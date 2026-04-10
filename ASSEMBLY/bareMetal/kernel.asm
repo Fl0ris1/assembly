@@ -102,9 +102,11 @@ get_password_loop:
 	cmp bx, 64 ;check if buffer full
 	je get_password_loop
 
-	mov ah, 0x0e ;echo the character
-	int 0x10
 	mov [buffer + bx], al
+
+	mov ah, 0x0e ;echo the character
+	mov al, '*'
+	int 0x10
 
 	inc bx
 	jmp get_password_loop
@@ -155,6 +157,12 @@ login_success:
 	mov si, msg_welcome ;print welcome message
 	call print_string
 
+	call sleep_1s ;wait 1 second
+
+	call clear_screen ;clear screen
+
+	jmp reset_prompt
+
 	mov ah, 0x0e ;new line
 	mov al, 0x0d
 	int 0x10
@@ -195,6 +203,8 @@ buffer_full:
 
 	jmp main_loop
 
+; ---------- LIBRARY SECTION ----------
+
 handle_enter:
 	mov byte [buffer+bx], 0 ;adds a null terminator to the end of the command
 
@@ -221,14 +231,21 @@ process_command:
 	call strcmp ;compare si with di
 	je execute_help ;jump to execute_help if equal
 
-	;3. Check For Reboot
+	;3. Check For 'reboot'
 
 	mov si, buffer
 	mov di, cmd_reboot
 	call strcmp
 	je execute_reboot
 
-	;4. Fallback: Unkown Command
+	;4. Check For 'time':
+
+	mov si, buffer
+	mov di, cmd_time
+	call strcmp
+	je execute_time
+
+	;5. Fallback: Unkown Command
 	jmp unkown_command
 
 reset_prompt:
@@ -272,6 +289,31 @@ print_string:
 .done:
 	ret
 
+print_bcd:
+	;input: al = bcd encoded value
+	;output: prints two ascii digits to the screen
+
+	;tens
+	push ax
+
+	and al, 0xf0 ;set the low 4 bits to 0
+	shr al,4 ;shift bits of al to the right by 4
+	add al, '0' ;convert to ascii
+
+	mov ah, 0x0e
+	int 0x10
+
+	;ones
+	pop ax
+
+	and al, 0x0f
+	add al, '0'
+
+	mov ah, 0x0e
+	int 0x10
+
+	ret
+
 strcmp:
 	;input: si (source index) = adress of string a, di (destination index) = adress of string b
 	;output: sets zero flag if equal, clears it if not
@@ -301,7 +343,78 @@ strcmp:
 	cmp al, 0 ;0 == 0 so zero flag will be set (set to 1 NOT 0)
 	ret
 
+get_rtc_register:
+	; INPUT: AL = Register Index To Read
+	; OUTPUT; AL = Value To Read From RTC
+
+	out 0x70, al ;write index to adress port. send value in al to cmos chip
+	in al, 0x71 ;read the data from the data port. puts value into al
+	ret
+
+sleep_1s:
+	;input: none (hardcoded to 1 second)
+	;output: none (waits and returns)
+	;100,000,000 microseconds = 0x000F4240 hex = 1 second.
+
+	mov ah, 0x86 ;opcode for wait
+	mov cx, 0xF ;top half of 0x000F4240
+	mov dx, 0x4240 ;bottom half of 0x000F4240
+
+	int 0x15
+
+	ret
+
+clear_screen:
+	;input: none
+	;output: clears screen to blue background
+
+	push es ;extra segment
+	push ax
+	push cx
+	push di ;destination index
+
+	mov ax, 0xb800
+	mov es, ax ;points es to video memory, which we will manipulate
+
+	xor di, di ;sets destination index to 0
+
+	mov ax, 0x1f20 ;1f in binary is 00011111 lower 4 bits are foreground, the 3 higher are the background and the highest one is blinking. 0x20 is a space in hex
+
+	;set counter, 80 columns x 25 rows = 2000 words (1 word = 2 bytes. The 2 bytes are the attributes and the character)
+	mov cx, 2000
+
+	rep stosw ;write ax to [es:di] 2 thousand times. stosw stores a word (2 bytes that are attribute and character) in memory
+
+	pop di
+	pop cx
+	pop ax
+	pop es ;!!ES IS USED FOR ACCESSING VARIABLES, RESTORE AFTER POPPING!!
+
+	ret
+
 ; ---------- COMMAND LIBRARY ----------
+
+execute_time:
+
+	mov al, 0x04 ;register 0x04 holds hours
+	call get_rtc_register ;read and print hours
+	call print_bcd
+
+	mov ah, 0x0e
+	mov al, ':' ;print a ':'
+	int 0x10
+
+	mov al, 0x02 ;register 0x02 holds minutes
+	call get_rtc_register ;read and print minutes
+	call print_bcd
+
+	mov ah, 0x0e
+	mov al, 0x0d
+	int 0x10
+	mov al, 0x0a
+	int 0x10
+
+	jmp reset_prompt
 
 execute_help:
 	mov si, msg_help
@@ -317,6 +430,19 @@ execute_help:
 	jmp reset_prompt
 
 execute_reboot:
+	mov si, msg_reboot
+	call print_string ;print msg_reboot
+
+	mov ah, 0x0e ;new line
+	mov al, 0x0d
+	int 0x10
+	mov al, 0x0a
+	int 0x10
+
+	call sleep_1s ;wait 3 seconds
+	call sleep_1s
+	call sleep_1s
+
 	jmp 0xFFFF:0x0000 ;adress of BIOS reset vector
 
 unkown_command:
@@ -339,9 +465,11 @@ unkown_command:
 buffer: times 64 db 0
 
 cmd_help: db 'help', 0
-cmd_reboot: db 'reboot', 0
 msg_help: db 'Commands: help, reboot', 0
+cmd_reboot: db 'reboot', 0
+msg_reboot: db 'System Restarting in 3 Seconds...', 0
 msg_unknown: db 'Unknown Command: ', 0
+cmd_time: db 'time', 0
 
 prompt: db 'root@maioloOS:~$ ', 0
 
