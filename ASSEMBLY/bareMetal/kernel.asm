@@ -1,4 +1,10 @@
+
 [org 0x1000]
+
+;---------- VIDEO CONSTANTS ----------
+VID_MEM equ 0xb800
+VID_MAIN equ 0x1f ;white on blue (main desktop)
+COL_HEADER equ 0x70 ;black on light gray (header)
 
 start:
 	xor ax, ax ;explicitly set the segment registers
@@ -163,17 +169,6 @@ login_success:
 
 	jmp reset_prompt
 
-	mov ah, 0x0e ;new line
-	mov al, 0x0d
-	int 0x10
-	mov al, 0x0a
-	int 0x10
-
-	mov si, prompt
-	call print_string
-
-	jmp main_loop
-
 main_loop:
 	mov ah, 0x00 ;keyboard read
 	int 0x16 ;keyboard interrupt. key is stored in al, scan code is stored in ah
@@ -238,7 +233,7 @@ process_command:
 	call strcmp
 	je execute_reboot
 
-	;4. Check For 'time':
+	;4. Check For 'time'
 
 	mov si, buffer
 	mov di, cmd_time
